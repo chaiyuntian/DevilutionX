@@ -1,0 +1,57 @@
+name: macOS App Zip
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: intel
+            runs_on: macos-15-intel
+            artifact_suffix: macOS-intel-x86_64-app
+            extra_cmake_args: -DDISCORD_INTEGRATION=ON
+          - name: arm64
+            runs_on: macos-14
+            artifact_suffix: macOS-apple-silicon-arm64-app
+            extra_cmake_args: ""
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Create Build Environment
+      run: brew bundle install
+
+    - name: Cache CMake build folder
+      uses: actions/cache@v5
+      with:
+        path: build
+        key: ${{ github.workflow }}-${{ matrix.name }}-v1-${{ github.sha }}
+        restore-keys: ${{ github.workflow }}-${{ matrix.name }}-v1-
+
+    - name: Clean previous outputs
+      run: rm -rf build && mkdir -p build
+
+    - name: Build App Bundle
+      shell: bash
+      run: |
+        cmake -S. -Bbuild -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+          -DMACOSX_STANDALONE_APP_BUNDLE=ON ${{ matrix.extra_cmake_args }}
+        cmake --build build -j "$(sysctl -n hw.physicalcpu)" --target package
+        ditto -c -k --sequesterRsrc --keepParent \
+          build/devilutionx.app \
+          build/devilutionx-${{ matrix.artifact_suffix }}.zip
+
+    - name: Upload App Zip
+      uses: actions/upload-artifact@v7
+      with:
+        name: devilutionx-${{ matrix.artifact_suffix }}.zip
+        path: build/devilutionx-${{ matrix.artifact_suffix }}.zip
